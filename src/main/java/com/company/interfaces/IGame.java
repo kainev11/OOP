@@ -1,11 +1,15 @@
 package com.company.interfaces;
 
-public interface IGame
-{
+import com.company.Message;
+
+public interface IGame {
     String start();
-    String getMessage();
-    void readMessage(String str);
+
+    Message answerMessage(String str);
+
     String getName();
+
     boolean isFinished();
+
     String getHelp();
 }

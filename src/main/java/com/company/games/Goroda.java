@@ -1,150 +1,136 @@
 package com.company.games;
 
+import com.company.CityInfo;
+import com.company.Message;
+import com.company.WikiApi;
 import com.company.interfaces.IGame;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-import java.io.*;
-import java.net.*;
-import java.util.HashMap;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.HashSet;
-import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 
-public class Goroda implements IGame
-{
-    private String[] cities = new String[]
-            {
-            "Москва",
-            "Анадырь",
-            "Ростов",
-            "Волгоград",
-            "Донецк"
-            };
-    private HashSet<String> usedCities = new HashSet<>();
+public class Goroda implements IGame {
+    private final String[] cities = getCities();
+    private final HashSet<String> usedCities = new HashSet<>();
     private String currentCity = "Амстердам";
-    private String err;
     private String lastLetter = "м";
     private Boolean finished = false;
     private String lastMessage;
+    private final WikiApi wikiApi = new WikiApi();
 
-    public String start()
-    {
+    public String[] getCities() {
+        String url = "https://raw.githubusercontent.com/pensnarik/russian-cities/master/russian-cities.json";
+        HttpClient client = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .build();
+        HttpResponse<String> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException | InterruptedException e) {
+            return new String[]{"Москва", "Амстердам", "Анадырь", "Ростов", "Волгоград", "Донецк"};
+        }
+        var resp = new JSONArray(response.body());
+        return IntStream.range(0, resp.length())
+                .mapToObj(index -> ((JSONObject)resp.get(index)).optString("name"))
+                .collect(Collectors.toList()).toArray(new String[resp.length()]);
+    }
+
+    public String start() {
         return (currentCity == "Амстердам" ? "Начнем" : "Продолжим") + " играть в города!\n" +
                 "Я называю город, ты называешь город на последнюю букву моего и так далее...\n" +
-                "Чтобы закончить, введи: хватит\n"+
+                "Чтобы закончить, введи: хватит\n" +
                 currentCity;
 
     }
 
-    public String getName()
-    {
+    public String getName() {
         return "Города";
     }
 
     @Override
-    public void readMessage(String str)
-    {
+    public Message answerMessage(String str) {
         str = str.toLowerCase();
 
-        if (!str.substring(0,1).equals(lastLetter))
-        {
-            err = "Нужен город на букву " + lastLetter;
-            return;
-        }
+        if (!str.substring(0, 1).equals(lastLetter))
+            return save("Нужен город на букву " + lastLetter);
 
         if (!inBase(str))
-        {
-            err = "Я не знаю такого города";
-            return;
-        }
+            return save("Я не знаю такого города");
+
         if (usedCities.contains(str))
-        {
-            err = "Этот город уже был";
-            return;
-        }
+            return save("Этот город уже был");
+
         updateCurrentCity(str);
-        err = null;
-    }
-
-    @Override
-    public String getMessage() {
-        if (err != null)
-        {
-            lastMessage = err;
-            return err;
-        }
-
         String city = find(lastLetter);
-        if (city != null)
-        {
+        if (city != null) {
+            CityInfo info = wikiApi.getCityInfo(city);
             updateCurrentCity(city);
-            lastMessage = city;
-            return city;
+            return save(info == null
+                    ? city
+                    : String.join("\n", "<b>" + info.Name + "</b>", info.Info), info.Image
+            );
         }
+
         finished = true;
-        return "Я не знаю подходящего города, игра окончена!";
+        return save("Я не знаю подходящего города, игра окончена!");
     }
 
     @Override
-    public boolean isFinished()
-    {
+    public boolean isFinished() {
         return finished;
     }
 
-    private boolean inBase(String value)
-    {
-        for (String s : cities)
-        {
-            if (s.toLowerCase().equals(value))
-            {
+    private boolean inBase(String value) {
+        for (String s : cities) {
+            if (s.toLowerCase().equals(value)) {
                 return true;
             }
         }
         return false;
     }
 
-    private String find(String value)
-    {
-        for (String city : cities)
-        {
-            if (city.toLowerCase().startsWith(value) && !usedCities.contains(city))
-            {
+    private String find(String value) {
+        for (String city : cities) {
+            if (city.toLowerCase().startsWith(value) && !usedCities.contains(city)) {
                 return city;
             }
         }
         return null;
     }
 
-    private void updateCurrentCity(String city)
-    {
+    private void updateCurrentCity(String city) {
         usedCities.add(city);
         currentCity = city;
         int lastIndex = currentCity.length();
         lastLetter = currentCity.substring(lastIndex - 1);
-        if (lastLetter.equals("ь") || lastLetter.equals("ы"))
-        {
-            lastLetter = currentCity.substring(lastIndex-2, lastIndex - 1);
+        if (lastLetter.equals("ь") || lastLetter.equals("ы")) {
+            lastLetter = currentCity.substring(lastIndex - 2, lastIndex - 1);
         }
     }
 
-    @Override
-    public String getHelp()
-    {
-        return "Я называю город, ты называешь город на последнюю букву моего и так далее...\n" +
-                "Чтобы закончить, введи: хватит\nНапомнить правила можно командной \\help";
+    private Message save(String message) {
+        lastMessage = message;
+        return new Message(message);
     }
 
-    public Map<String, String> getWikiInfo(String city) throws Exception{
-        Map<String, String> wikiInfo = new HashMap<String, String>();
-        String url = "https://ru.wikipedia.org/w/api.php?format=json&action=query&prop=pageimages%7Cextracts&exintro&explaintext&images&pithumbsize=300&titles=" + city;
-        URL wikiApi = new URL(url);
+    private Message save(String message, String image){
+        lastMessage = message;
+        return new Message(message, image);
+    }
 
-        BufferedReader in = new BufferedReader(new InputStreamReader(wikiApi.openStream()));
-
-        String inputLine;
-        while ((inputLine = in.readLine()) != null)
-            System.out.println(inputLine); //Можно   накапливать в StringBuilder а потом присвоить перемной String результат накопления
-        in.close();
-
-        return wikiInfo;
+    @Override
+    public String getHelp() {
+        return "Я называю город, ты называешь город на последнюю букву моего и так далее...\n" +
+                "Чтобы закончить, введи: хватит\nНапомнить правила можно командной \\help";
     }
 }
